@@ -759,7 +759,7 @@ class ShaktiTrainer:
                                     shard_state = torch.load(str(shard_pt), map_location="cpu", weights_only=True)
                                     self._load_weight_state(model, shard_state)
                                     bank.active_shard_id = shard_id
-                                if canon_q and _normalize_prompt_key(prompt_text) != _normalize_prompt_key(canon_q):
+                                if canon_q:
                                     full_c, lbl_c = self._encode_qa(active_tok, canon_q, "X")
                                     c_prompt_ids = [tid for tid, l in zip(full_c, lbl_c) if l == -100]
                                     new_inp = torch.tensor([c_prompt_ids], dtype=torch.long, device=input_ids.device)
@@ -1112,13 +1112,12 @@ class ShaktiTrainer:
 
         synthesized_rows = _synthesize_dated_and_2hop_rows(raw_verified_items, self.shard_bank.known_entity_map)
 
-        unique_verified_facts = []
-        seen_uq = set()
+        uq_map: dict[str, dict[str, str]] = {}
         for r in active_rows + synthesized_rows:
             nq = _normalize_prompt_key(r["question"])
-            if nq and nq not in seen_uq:
-                seen_uq.add(nq)
-                unique_verified_facts.append({"question": r["question"], "answer": r["answer"]})
+            if nq:
+                uq_map[nq] = {"question": r["question"], "answer": r["answer"]}
+        unique_verified_facts = list(uq_map.values())
 
         if not gate_cfg.get("taught_questions"):
             gate_cfg["taught_questions"] = [r["question"].strip().lower() for r in unique_verified_facts]
