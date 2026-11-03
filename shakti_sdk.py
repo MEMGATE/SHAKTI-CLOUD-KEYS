@@ -89,7 +89,7 @@ def _extract_qa_from_prose(item: Any) -> dict[str, Any]:
         return item
     # Reject non-assertions (questions or hypotheticals in raw prose streams)
     if prose.endswith("?") or prose.lower().startswith(("if ", "suppose ", "rumor ")):
-        return {**item, "verified": False, "poison": True}
+        return {**item, "question": prose, "answer": "REJECTED_DISTRACTOR", "verified": False, "poison": True}
 
     clean = prose.rstrip(".! ")
     # Pattern 1: "<Person> was appointed <Role> of <Org> in <Year>"
