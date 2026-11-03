@@ -671,18 +671,19 @@ class ShaktiTrainer:
         """Encode Question + Answer with prompt tokens masked as -100 so only Answer tokens are trained."""
         if hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None):
             try:
-                msgs_full = [
+                msgs_prompt = [
                     {"role": "system", "content": "Answer concisely and accurately."},
                     {"role": "user", "content": question},
-                    {"role": "assistant", "content": answer},
                 ]
-                msgs_prompt = msgs_full[:-1]
-                full_ids = cls._coerce_token_id_list(tokenizer.apply_chat_template(msgs_full, tokenize=True))
                 prompt_ids = cls._coerce_token_id_list(
                     tokenizer.apply_chat_template(msgs_prompt, tokenize=True, add_generation_prompt=True)
                 )
-                if len(full_ids) > len(prompt_ids):
-                    labels = [-100] * len(prompt_ids) + full_ids[len(prompt_ids):]
+                ans_ids = list(tokenizer.encode(f" {answer}", add_special_tokens=False))
+                if getattr(tokenizer, "eos_token_id", None) is not None:
+                    ans_ids.append(int(tokenizer.eos_token_id))
+                if prompt_ids and ans_ids:
+                    full_ids = prompt_ids + ans_ids
+                    labels = [-100] * len(prompt_ids) + ans_ids
                     return full_ids, labels
             except Exception:
                 pass
@@ -733,6 +734,7 @@ class ShaktiTrainer:
         """Attach the CCL-7 v12 Subspace + Auto-Shard Almari Router directly onto `model.generate`."""
         model._shakti_subspace_gate = gate
         model._shakti_shard_bank = self.shard_bank
+        model._shakti_tokenizer = tokenizer
         if getattr(model, "_shakti_hook_attached", False):
             return
         orig_generate = model.generate
@@ -743,9 +745,10 @@ class ShaktiTrainer:
                 input_ids = kwargs.get("input_ids")
                 if input_ids is None and len(args) > 0:
                     input_ids = args[0]
-                if input_ids is not None and tokenizer is not None:
+                active_tok = getattr(model, "_shakti_tokenizer", tokenizer)
+                if input_ids is not None and active_tok is not None:
                     import torch
-                    prompt_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
+                    prompt_text = active_tok.decode(input_ids[0], skip_special_tokens=True)
                     bank: ShaktiShardBank | None = getattr(model, "_shakti_shard_bank", None)
                     if bank is not None:
                         shard_id, canon_q, _ans = bank.lookup_shard_detailed(prompt_text)
@@ -757,7 +760,7 @@ class ShaktiTrainer:
                                     self._load_weight_state(model, shard_state)
                                     bank.active_shard_id = shard_id
                                 if canon_q and _normalize_prompt_key(prompt_text) != _normalize_prompt_key(canon_q):
-                                    full_c, lbl_c = self._encode_qa(tokenizer, canon_q, "X")
+                                    full_c, lbl_c = self._encode_qa(active_tok, canon_q, "X")
                                     c_prompt_ids = [tid for tid, l in zip(full_c, lbl_c) if l == -100]
                                     new_inp = torch.tensor([c_prompt_ids], dtype=torch.long, device=input_ids.device)
                                     new_kwargs = dict(kwargs)
@@ -768,7 +771,7 @@ class ShaktiTrainer:
                                     new_tokens = gen_out[:, len(c_prompt_ids):]
                                     return torch.cat([input_ids, new_tokens], dim=1)
                                 return orig_generate(*args, **kwargs)
-                    q_vec = self._extract_embedding(prompt_text, model, tokenizer)
+                    q_vec = self._extract_embedding(prompt_text, model, active_tok)
                     active_gate = getattr(model, "_shakti_subspace_gate", gate)
                     activate, _score = active_gate.should_activate_adapter(q_vec, prompt_text=prompt_text)
                     if not activate:
@@ -817,6 +820,7 @@ class ShaktiTrainer:
     def ask(self, model: Any, tokenizer: Any, question: str, max_new_tokens: int = 32) -> str:
         """Query the trained model (supports Chat-Template Instruct models, Multi-Line Code Skills, and Auto-Shards)."""
         import torch
+        model._shakti_tokenizer = tokenizer
         if not getattr(model, "_shakti_hook_attached", False):
             self.attach(model, tokenizer)
 
