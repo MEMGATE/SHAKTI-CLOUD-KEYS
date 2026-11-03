@@ -1,10 +1,15 @@
 """SHAKTI Universal Continual-Learning SDK (`shakti_sdk.py`) — v3.3
-(Zero-Secret Client Connector: Auto-Shard Almari + Chat-Template Support + Prose-to-QA +
-Multi-Line Code Skills + Single-Fact Clean Retraction + Cross-Session Sleeper Poison Defense +
+(Client-Side Routed/Subspace-Gated Adapter & SQLite Auto-Shard Connector:
+Auto-Shard Almari + Chat-Template Support + Prose-to-QA + Multi-Line Code Skills +
+Single-Fact Clean Retraction + Cross-Session Sleeper Poison Defense +
 2-Hop Consequence Deduction + Temporal History + Persistent Checkpoint Reload).
 
-Is file mein 0% secret formula hai — saare proprietary continual-learning formulas
-`PRAMANA-VAULT.bin` (3-Password AES-256) ke andar sealed hain.
+Note on Architecture:
+- This SDK implements a routed/gated continual-learning client (`ShaktiShardBank` SQLite shard router +
+  `ShaktiSubspaceGate` hook on `model.generate` that routes in-scope prompts to their shard adapter and
+  bypasses the adapter on out-of-scope prompts).
+- Key status (`ON`/`OFF`) is verified against the SHAKTI server or the cloud key registry, with a local
+  fallback session planner (`_cloud_prepare_session`) when running standalone on remote GPUs.
 """
 from __future__ import annotations
 
@@ -731,7 +736,7 @@ class ShaktiTrainer:
         self._attach_subspace_generate_hook(model, tokenizer, gate)
 
     def _attach_subspace_generate_hook(self, model: Any, tokenizer: Any, gate: ShaktiSubspaceGate) -> None:
-        """Attach the CCL-7 v12 Subspace + Auto-Shard Almari Router directly onto `model.generate`."""
+        """Attach the Routed Subspace Gate + Auto-Shard Almari Router hook onto `model.generate`."""
         model._shakti_subspace_gate = gate
         model._shakti_shard_bank = self.shard_bank
         model._shakti_tokenizer = tokenizer
