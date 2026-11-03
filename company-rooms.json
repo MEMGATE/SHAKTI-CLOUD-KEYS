@@ -1,0 +1,14 @@
+{
+ "SHAKTI-KEY-1001-C7AE": {
+  "code": "SHAKTI-KEY-1001-C7AE",
+  "company": "jsjas",
+  "model": "Universal Plug",
+  "mode": "UNLIMITED",
+  "switch_on": true,
+  "sessions_completed": 34,
+  "facts_learned": 1544,
+  "poison_blocked": 40,
+  "last_checkpoint": "2026-11-02 11:17:19",
+  "status": "ACTIVE"
+ }
+}
