@@ -1418,7 +1418,8 @@ class ShaktiTrainer:
         def _project_lora_A(alpha_val: float) -> None:
             with torch.no_grad():
                 for A_w, U_m in lora_A_projections:
-                    A_w.sub_(alpha_val * (A_w @ U_m) @ U_m.T)
+                    U_m_dev = U_m.to(A_w.device)
+                    A_w.sub_(alpha_val * (A_w @ U_m_dev) @ U_m_dev.T)
 
         def _encode_messages(messages: list[dict[str, str]]) -> tuple[list[int], list[int]]:
             p_ids = self._coerce_token_id_list(
@@ -1469,7 +1470,7 @@ class ShaktiTrainer:
                             logits_to_keep=1,
                         )
                         cur_lg = out_kl.logits[:, -1, :].float()
-                        a_ref = a_ref_lg.to(device, dtype=torch.float32)
+                        a_ref = a_ref_lg.to(cur_lg.device, dtype=torch.float32)
                         T = 2.0
                         kl_loss = F.kl_div(
                             F.log_softmax(cur_lg / T, dim=-1),
