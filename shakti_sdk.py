@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import pathlib
 import re
 import shutil
@@ -520,35 +521,44 @@ def _post_json(url: str, payload: dict[str, Any], timeout: int = 15) -> dict[str
         method="POST",
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            try:
-                return json.loads(body) if body.strip() else {}
-            except json.JSONDecodeError as je:
-                raise urllib.error.URLError(f"Non-JSON response from {url}") from je
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")
+    last_ue = None
+    for attempt in range(4):
         try:
-            err_obj = json.loads(detail)
-            msg = err_obj.get("error", detail)
-        except Exception:
-            msg = detail
-        if e.code in (401, 403):
-            raise ShaktiAccessError(msg) from None
-        raise RuntimeError(f"SHAKTI Server Error ({e.code}): {msg}") from None
-    except urllib.error.URLError:
-        api_key = str(payload.get("api_key", ""))
-        rooms = _fetch_cloud_registry(api_key)
-        if rooms is None:
-            raise RuntimeError(
-                f"Could not connect to SHAKTI Server at {url} and Cloud Registry was unreachable."
-            ) from None
-        if url.endswith("/verify_key") or url.endswith("/heartbeat"):
-            return _verify_against_rooms(api_key, rooms)
-        if url.endswith("/prepare_session"):
-            return _cloud_prepare_session(payload, rooms)
-        raise
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                try:
+                    return json.loads(body) if body.strip() else {}
+                except json.JSONDecodeError as je:
+                    raise urllib.error.URLError(f"Non-JSON response from {url}") from je
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace")
+            try:
+                err_obj = json.loads(detail)
+                msg = err_obj.get("error", detail)
+            except Exception:
+                msg = detail
+            if e.code in (401, 403):
+                raise ShaktiAccessError(msg) from None
+            raise RuntimeError(f"SHAKTI Server Error ({e.code}): {msg}") from None
+        except urllib.error.URLError as ue:
+            last_ue = ue
+            if attempt < 3:
+                time.sleep(1.5)
+                continue
+            # Strict Zero-Silent-Bypass: Offline mock is only permitted if caller explicitly passed `_allow_offline_sim=True`
+            if payload.get("_allow_offline_sim", False):
+                api_key = str(payload.get("api_key", ""))
+                rooms = _fetch_cloud_registry(api_key)
+                if rooms is not None:
+                    if url.endswith("/verify_key") or url.endswith("/heartbeat"):
+                        return _verify_against_rooms(api_key, rooms)
+                    if url.endswith("/prepare_session"):
+                        return _cloud_prepare_session(payload, rooms)
+            raise ShaktiAccessError(
+                f"SHAKTI Server unreachable at '{url}'. "
+                "Silent offline bypass is disabled to protect continual-learning integrity. "
+                "Please ensure your SHAKTI Control Room server and secure cloud tunnel are active."
+            ) from ue
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -600,19 +610,29 @@ class ShaktiTrainer:
         api_key: str,
         server_url: str = "http://localhost:8790",
         shard_storage_dir: str | pathlib.Path | None = None,
+        allow_offline_sim: bool = False,
     ):
         self.api_key = api_key.strip()
         self.server_url = server_url.rstrip("/")
+        self._allow_offline_sim = allow_offline_sim
         self._snapshots: dict[int, dict[str, Any]] = {}
         self._session_history: dict[int, list[dict[str, Any]]] = {}
         self.shard_bank = ShaktiShardBank(storage_dir=shard_storage_dir)
         self.key_info = self.verify_key()
+        self.session_token = self.key_info.get("session_token", "")
+        self.shard_bank.session_token = self.session_token
 
     def verify_key(self) -> dict[str, Any]:
         """Verify that `self.api_key` is active and turned ON in SHAKTI Control Center."""
-        res = _post_json(f"{self.server_url}/api/v1/verify_key", {"api_key": self.api_key})
+        payload = {"api_key": self.api_key}
+        if getattr(self, "_allow_offline_sim", False):
+            payload["_allow_offline_sim"] = True
+        res = _post_json(f"{self.server_url}/api/v1/verify_key", payload)
         if not res.get("ok"):
             raise ShaktiAccessError(res.get("error", "Access Key rejected by SHAKTI."))
+        self.session_token = res.get("session_token", "")
+        if hasattr(self, "shard_bank"):
+            self.shard_bank.session_token = self.session_token
         return res
 
     def verify(self) -> dict[str, Any]:
@@ -711,6 +731,50 @@ class ShaktiTrainer:
             p.requires_grad = False
         return named_trainable[-16:]
 
+    def _save_shard_state_encrypted(self, state_dict: dict[str, Any], path: pathlib.Path) -> None:
+        import io, struct, hashlib, torch
+        buf = io.BytesIO()
+        torch.save(state_dict, buf)
+        raw = buf.getvalue()
+        token = getattr(self, "session_token", "") or self.api_key
+        key = hashlib.sha256(token.encode("utf-8")).digest()
+        nonce = os.urandom(16)
+        out = bytearray(len(raw))
+        mv = memoryview(raw)
+        for offset in range(0, len(raw), 64):
+            counter = nonce + struct.pack(">Q", offset // 64)
+            ks = hashlib.blake2b(counter, key=key, digest_size=64).digest()
+            chunk = mv[offset:offset + len(ks)]
+            for i in range(len(chunk)):
+                out[offset + i] = chunk[i] ^ ks[i]
+        path.write_bytes(b"SHAKTI_E" + nonce + bytes(out))
+
+    def _load_shard_state_encrypted(self, path: pathlib.Path) -> dict[str, Any]:
+        import io, struct, hashlib, torch
+        raw = path.read_bytes()
+        if not raw.startswith(b"SHAKTI_E"):
+            buf = io.BytesIO(raw)
+            return torch.load(buf, map_location="cpu", weights_only=True)
+        nonce = raw[8:24]
+        ciphertext = raw[24:]
+        token = getattr(self, "session_token", "") or self.api_key
+        if not token:
+            raise ShaktiAccessError("Cannot decrypt Almari Shard weights: No active SHAKTI session token.")
+        key = hashlib.sha256(token.encode("utf-8")).digest()
+        out = bytearray(len(ciphertext))
+        mv = memoryview(ciphertext)
+        for offset in range(0, len(ciphertext), 64):
+            counter = nonce + struct.pack(">Q", offset // 64)
+            ks = hashlib.blake2b(counter, key=key, digest_size=64).digest()
+            chunk = mv[offset:offset + len(ks)]
+            for i in range(len(chunk)):
+                out[offset + i] = chunk[i] ^ ks[i]
+        buf = io.BytesIO(out)
+        try:
+            return torch.load(buf, map_location="cpu", weights_only=True)
+        except Exception as e:
+            raise ShaktiAccessError("Almari Shard decryption failed: Invalid or revoked session token.") from e
+
     def _load_weight_state(self, model: Any, state_dict: dict[str, Any]) -> None:
         import torch
         with torch.no_grad():
@@ -757,7 +821,7 @@ class ShaktiTrainer:
                             shard_pt = bank.shard_weight_path(shard_id)
                             if shard_pt.exists():
                                 if bank.active_shard_id != shard_id:
-                                    shard_state = torch.load(str(shard_pt), map_location="cpu", weights_only=True)
+                                    shard_state = self._load_shard_state_encrypted(shard_pt)
                                     self._load_weight_state(model, shard_state)
                                     bank.active_shard_id = shard_id
                                 if canon_q:
@@ -960,7 +1024,7 @@ class ShaktiTrainer:
         model.eval()
 
         shard_state = {n: p.detach().cpu().clone() for n, p in trainable_named}
-        torch.save(shard_state, str(self.shard_bank.shard_weight_path(shard_id)))
+        self._save_shard_state_encrypted(shard_state, self.shard_bank.shard_weight_path(shard_id))
         self.shard_bank.active_shard_id = shard_id
         return True
 
@@ -1300,11 +1364,36 @@ class ShaktiTrainer:
 
 def connect(
     api_key: str,
-    server_url: str = "http://localhost:8790",
+    server_url: str | None = None,
     shard_storage_dir: str | pathlib.Path | None = None,
+    allow_offline_sim: bool = False,
 ) -> ShaktiTrainer:
-    """Connect to SHAKTI using an Access Key (`SHAKTI-KEY-...`). Works with Local Server or Global Cloud Registry."""
-    return ShaktiTrainer(api_key=api_key, server_url=server_url, shard_storage_dir=shard_storage_dir)
+    """Connect to SHAKTI using an Access Key (`SHAKTI-KEY-...`).
+    
+    If `server_url` is omitted, automatically discovers:
+    1. `SHAKTI_SERVER_URL` environment variable
+    2. `LIVE_TUNNEL_URL.txt` (active Cloudflare Tunnel)
+    3. `http://localhost:8790` (local server)
+    """
+    if not server_url:
+        env_url = os.environ.get("SHAKTI_SERVER_URL", "").strip()
+        if env_url:
+            server_url = env_url
+        else:
+            here = pathlib.Path(__file__).resolve().parent
+            url_file = here / "LIVE_TUNNEL_URL.txt"
+            if url_file.exists():
+                candidate = url_file.read_text(encoding="utf-8").strip()
+                if candidate.startswith("https://"):
+                    server_url = candidate
+        if not server_url:
+            server_url = "http://localhost:8790"
+    return ShaktiTrainer(
+        api_key=api_key,
+        server_url=server_url,
+        shard_storage_dir=shard_storage_dir,
+        allow_offline_sim=allow_offline_sim,
+    )
 
 
 def _run_cli_demo(api_key: str, server_url: str) -> None:
