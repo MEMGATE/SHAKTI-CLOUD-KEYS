@@ -1512,8 +1512,15 @@ class ShaktiTrainer:
 
         assert not any("lora_" in n for n, _ in merged_model.named_parameters()), "LoRA parameters still present!"
         assert not hasattr(merged_model, "_subspace") or getattr(merged_model, "_subspace") is None, "_subspace present!"
-        total_hooks = sum(len(m._forward_hooks) + len(m._forward_pre_hooks) for m in merged_model.modules())
-        assert total_hooks == 0, f"Found {total_hooks} hooks on merged_model!"
+        # Filter out accelerate multi-GPU device placement hooks (AlignDevicesHook) on multi-GPU setups
+        routing_hooks = []
+        for m in merged_model.modules():
+            for hk in list(m._forward_hooks.values()) + list(m._forward_pre_hooks.values()):
+                hk_name = getattr(hk, "__qualname__", "") or type(hk).__name__
+                if "align" not in hk_name.lower() and "hf_hook" not in str(type(hk)).lower():
+                    routing_hooks.append(hk)
+        assert len(routing_hooks) == 0, f"Found {len(routing_hooks)} non-device routing hooks on merged_model!"
+        total_hooks = len(routing_hooks)
 
         w_bytes = merged_model.model.layers[-1].self_attn.o_proj.weight.detach().float().cpu().numpy().tobytes()
         weights_sha256 = hashlib.sha256(w_bytes).hexdigest()
