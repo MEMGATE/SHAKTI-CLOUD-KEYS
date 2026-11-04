@@ -5,11 +5,11 @@
   "model": "Universal Plug",
   "mode": "UNLIMITED",
   "switch_on": true,
-  "sessions_completed": 297,
-  "facts_learned": 4937,
-  "poison_blocked": 407,
-  "last_checkpoint": "2026-11-04 18:13:32",
-  "status": "ACTIVE \u2014 Session 297 Completed"
+  "sessions_completed": 300,
+  "facts_learned": 5071,
+  "poison_blocked": 423,
+  "last_checkpoint": "2026-11-04 18:13:34",
+  "status": "ACTIVE \u2014 Session 300 Completed"
  },
  "SHAKTI-KEY-1002-B25D": {
   "code": "SHAKTI-KEY-1002-B25D",
