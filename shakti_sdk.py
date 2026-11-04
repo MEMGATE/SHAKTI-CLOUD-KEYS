@@ -1397,8 +1397,8 @@ class ShaktiTrainer:
         ]
         frozen_office_logits = []
         with torch.no_grad():
-            for i in range(0, len(anchor_prompts), 16):
-                batch_p = anchor_prompts[i : i + 16]
+            for i in range(0, len(anchor_prompts), 4):
+                batch_p = anchor_prompts[i : i + 4]
                 w = max(len(x) for x in batch_p)
                 ids = torch.tensor([[tokenizer.pad_token_id] * (w - len(x)) + x for x in batch_p], device=device)
                 msk = torch.tensor([[0] * (w - len(x)) + [1] * len(x) for x in batch_p], device=device)
@@ -1453,17 +1453,21 @@ class ShaktiTrainer:
             opt = torch.optim.AdamW([p for p in peft_model.parameters() if p.requires_grad], lr=lr_ep, weight_decay=1e-4)
             rng = random.Random(sd)
             tokenizer.padding_side = "right"
+            try:
+                peft_model.gradient_checkpointing_enable()
+            except Exception:
+                pass
             peft_model.train()
             kl_idx = 0
             for _ep in range(n_ep):
                 order = list(range(len(data)))
                 rng.shuffle(order)
                 steps = 0
-                for i in range(0, len(order), 16):
-                    whole = [data[j] for j in order[i : i + 16]]
+                for i in range(0, len(order), 8):
+                    whole = [data[j] for j in order[i : i + 8]]
                     opt.zero_grad()
-                    for mb in range(0, len(whole), 8):
-                        batch = whole[mb : mb + 8]
+                    for mb in range(0, len(whole), 4):
+                        batch = whole[mb : mb + 4]
                         width = max(len(x) for x, _ in batch)
                         ids = torch.tensor([x + [tokenizer.pad_token_id] * (width - len(x)) for x, _ in batch], device=device)
                         labels = torch.tensor([y + [-100] * (width - len(y)) for _, y in batch], device=device)
@@ -1494,6 +1498,8 @@ class ShaktiTrainer:
                     torch.nn.utils.clip_grad_norm_(peft_model.parameters(), 1.0)
                     opt.step()
                     steps += 1
+                    if steps % 10 == 0 and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 if n_alpha > 0:
                     _project_lora_A(n_alpha)
             peft_model.eval()
