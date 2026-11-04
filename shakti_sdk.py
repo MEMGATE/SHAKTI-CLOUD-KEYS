@@ -622,6 +622,11 @@ class ShaktiTrainer:
         self.session_token = self.key_info.get("session_token", "")
         self.shard_bank.session_token = self.session_token
 
+    def close(self) -> None:
+        """Close database connections and cleanup shard bank resources."""
+        if hasattr(self, "shard_bank") and self.shard_bank is not None:
+            self.shard_bank.close()
+
     def verify_key(self) -> dict[str, Any]:
         """Verify that `self.api_key` is active and turned ON in SHAKTI Control Center."""
         payload = {"api_key": self.api_key}
