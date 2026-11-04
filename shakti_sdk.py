@@ -1359,12 +1359,19 @@ class ShaktiTrainer:
 
                 hooks.append(mod.register_forward_hook(_make_hook(key)))
 
+        def _extract_prompt(msgs: list[dict[str, str]]) -> list[dict[str, str]]:
+            if not msgs:
+                return msgs
+            if len(msgs) > 1 and msgs[-1].get("role") == "assistant":
+                return msgs[:-1]
+            return msgs
+
         tokenizer.padding_side = "left"
         with torch.no_grad():
             for i in range(0, len(same_domain_anchor_rows), 32):
                 batch_r = same_domain_anchor_rows[i : i + 32]
                 prompts = [
-                    tokenizer.apply_chat_template(r["messages"][:-1], tokenize=False, add_generation_prompt=True)
+                    tokenizer.apply_chat_template(_extract_prompt(r["messages"]), tokenize=False, add_generation_prompt=True)
                     for r in batch_r
                 ]
                 enc = tokenizer(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
@@ -1384,7 +1391,7 @@ class ShaktiTrainer:
 
         anchor_prompts = [
             self._coerce_token_id_list(
-                tokenizer.apply_chat_template(r["messages"][:-1], tokenize=True, add_generation_prompt=True)
+                tokenizer.apply_chat_template(_extract_prompt(r["messages"]), tokenize=True, add_generation_prompt=True)
             )
             for r in same_domain_anchor_rows
         ]
@@ -1426,19 +1433,20 @@ class ShaktiTrainer:
                     A_w.sub_(alpha_val * (A_w @ U_m_dev) @ U_m_dev.T)
 
         def _encode_messages(messages: list[dict[str, str]]) -> tuple[list[int], list[int]]:
+            p_msgs = _extract_prompt(messages)
             p_ids = self._coerce_token_id_list(
-                tokenizer.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True)
+                tokenizer.apply_chat_template(p_msgs, tokenize=True, add_generation_prompt=True)
             )
             f_ids = self._coerce_token_id_list(
                 tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
             )
             return f_ids, [-100] * len(p_ids) + f_ids[len(p_ids) :]
 
-        all_rows = (
-            list(taught_rows)
-            + [{"messages": r["messages"]} for r in same_domain_anchor_rows] * 2
-            + [{"messages": r["messages"]} for r in general_anchor_rows]
-        )
+        ce_anchor_rows = [
+            r for r in (list(same_domain_anchor_rows) + list(general_anchor_rows))
+            if len(r.get("messages", [])) >= 2 and r["messages"][-1].get("role") == "assistant"
+        ]
+        all_rows = list(taught_rows) + ce_anchor_rows
 
         def _run_epochs(rows_to_train: list[dict[str, Any]], n_ep: int, lr_ep: float, sd: int, n_alpha: float) -> None:
             data = [_encode_messages(r["messages"]) for r in rows_to_train]
