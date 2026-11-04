@@ -595,6 +595,10 @@ class ShaktiSubspaceGate:
 class ShaktiTrainer:
     """Universal Key-bound Continual Learning Trainer (`v3.3`)."""
 
+    @property
+    def key_name(self) -> str:
+        return getattr(self, 'key_info', {}).get('key_name', 'Universal')
+
     def __init__(
         self,
         api_key: str,
