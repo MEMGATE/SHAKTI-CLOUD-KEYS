@@ -1,7 +1,7 @@
 """SHAKTI Universal Continual-Learning Client SDK (shakti_sdk.py) — v3.3 (Client Connector Edition)
 Client-Side Routed/Subspace-Gated Adapter & SQLite Auto-Shard Connector (train / train_stream):
 ShaktiShardBank SQLite shard router + ShaktiSubspaceGate hook for multi-shard deployments.
-All proprietary continual-learning origin algorithms remain strictly inside PRAMANA-VAULT.bin.
+All proprietary continual-learning origin algorithms remain strictly inside CORE-VAULT.bin.
 """
 from __future__ import annotations
 
@@ -570,7 +570,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 class ShaktiSubspaceGate:
     """Client-side runtime connector token returned by the SHAKTI Server.
-    All proprietary mathematical formulas remain strictly inside PRAMANA-VAULT.bin.
+    All proprietary mathematical formulas remain strictly inside CORE-VAULT.bin.
     """
 
     def __init__(self, gate_cfg: dict[str, Any], shard_bank: ShaktiShardBank | None = None):
@@ -656,7 +656,7 @@ class ShaktiTrainer:
 
     @staticmethod
     def _extract_embedding(text: str, model: Any = None, tokenizer: Any = None) -> list[float]:
-        """Extract deterministic client-side token fingerprint (all proprietary formulas stay inside PRAMANA-VAULT.bin)."""
+        """Extract deterministic client-side token fingerprint (all proprietary formulas stay inside CORE-VAULT.bin)."""
         tokens = [t.strip("?,.:;!'\"()[]").lower() for t in text.split() if t.strip()]
         vec = [0.0] * 32
         for tok in tokens:
