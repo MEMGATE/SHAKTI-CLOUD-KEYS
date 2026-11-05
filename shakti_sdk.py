@@ -23,7 +23,7 @@ import urllib.request
 from typing import Any, Iterable, Optional
 
 DEFAULT_VAULT_URL = os.environ.get("SHAKTI_VAULT_URL", "http://127.0.0.1:8790").rstrip("/")
-DEFAULT_API_KEY = os.environ.get("SHAKTI_API_KEY", "SHAKTI-KEY-1002-B25D")
+DEFAULT_API_KEY = os.environ.get("SHAKTI_API_KEY", "SHAKTI-KEY-2002-2910")
 
 
 class ShaktiAccessError(PermissionError):
