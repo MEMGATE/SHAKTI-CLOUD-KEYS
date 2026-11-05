@@ -16,11 +16,11 @@
   "company": "open",
   "model": "Universal Plug",
   "mode": "UNLIMITED",
-  "switch_on": true,
-  "sessions_completed": 1329,
-  "facts_learned": 57190,
-  "poison_blocked": 7763,
-  "last_checkpoint": "2026-11-05 05:34:07",
-  "status": "ACTIVE"
+  "switch_on": false,
+  "sessions_completed": 1331,
+  "facts_learned": 57195,
+  "poison_blocked": 7766,
+  "last_checkpoint": "2026-11-05 05:36:48",
+  "status": "PAUSED"
  }
 }
