@@ -139,7 +139,11 @@ class ShaktiTrainer:
         except ShaktiAccessError:
             raise
         except Exception:
-            return _check_cloud_registry(self.api_key)
+            cloud_info = _check_cloud_registry(self.api_key)
+            tunnel_url = cloud_info.get("server_url", "")
+            if tunnel_url and tunnel_url != self.server_url:
+                self.server_url = tunnel_url
+            return cloud_info
 
     @staticmethod
     def ask_plain_weights(model: Any, tokenizer: Any, question: str, max_new_tokens: int = 24) -> str:
