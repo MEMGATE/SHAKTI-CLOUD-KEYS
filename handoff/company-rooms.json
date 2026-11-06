@@ -1,14 +1,14 @@
 {
- "SHAKTI-KEY-1001-C7AE": {
-  "code": "SHAKTI-KEY-1001-C7AE",
-  "company": "jsjas",
+ "SHAKTI-KEY-1001-E4E3": {
+  "code": "SHAKTI-KEY-1001-E4E3",
+  "company": "GOOGLE",
   "model": "Universal Plug",
   "mode": "UNLIMITED",
   "switch_on": true,
-  "sessions_completed": 35,
-  "facts_learned": 1550,
-  "poison_blocked": 41,
-  "last_checkpoint": "2026-11-03 08:19:57",
-  "status": "ACTIVE \u2014 Session 35 Completed"
+  "sessions_completed": 0,
+  "facts_learned": 0,
+  "poison_blocked": 0,
+  "last_checkpoint": "2026-11-06 15:31:58",
+  "status": "ACTIVE"
  }
 }
