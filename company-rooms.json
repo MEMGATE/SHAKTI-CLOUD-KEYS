@@ -1,15 +1,8 @@
 {
- "SHAKTI-KEY-1001-0DF1": {
-  "code": "SHAKTI-KEY-1001-0DF1",
-  "company": "testing",
-  "model": "Universal Plug",
-  "mode": "UNLIMITED",
-  "switch_on": true,
-  "server_url": "https://6dea85f3bcd73a.lhr.life",
-  "sessions_completed": 2,
-  "facts_learned": 2,
-  "poison_blocked": 0,
-  "last_checkpoint": "2026-11-06 18:39:34",
-  "status": "ACTIVE \u2014 Session 2 Completed"
- }
+  "sha256:8cbd6de033822189d223facfb5446e43412f472a2e6a0ef7fc5383decceb1043": {
+    "enc_server_url": "1e319ffa13167e28fca6261e526af1dac58ca99999479f87875955c83a110e1579ac874ae1d41f430b4418a1ac8561",
+    "mode": "UNLIMITED",
+    "status": "ACTIVE (ON)",
+    "switch_on": true
+  }
 }
