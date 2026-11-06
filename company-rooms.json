@@ -5,11 +5,11 @@
   "model": "Universal Plug",
   "mode": "UNLIMITED",
   "switch_on": true,
-  "sessions_completed": 0,
-  "facts_learned": 0,
-  "poison_blocked": 0,
-  "last_checkpoint": "2026-11-06 15:31:58",
-  "status": "ACTIVE",
+  "sessions_completed": 1,
+  "facts_learned": 1,
+  "poison_blocked": 1,
+  "last_checkpoint": "2026-11-06 16:47:28",
+  "status": "ACTIVE \u2014 Session 1 Completed",
   "server_url": "https://ba2a350e436e19.lhr.life"
  }
 }
