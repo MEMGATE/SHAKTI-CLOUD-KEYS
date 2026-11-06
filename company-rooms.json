@@ -6,10 +6,10 @@
   "mode": "UNLIMITED",
   "switch_on": true,
   "server_url": "https://67f2fe96a1f9ac.lhr.life",
-  "sessions_completed": 0,
-  "facts_learned": 0,
+  "sessions_completed": 1,
+  "facts_learned": 1,
   "poison_blocked": 0,
-  "last_checkpoint": "2026-11-06 17:10:41",
-  "status": "ACTIVE"
+  "last_checkpoint": "2026-11-06 18:31:31",
+  "status": "ACTIVE \u2014 Session 1 Completed"
  }
 }
