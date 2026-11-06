@@ -1,26 +1,14 @@
 {
- "SHAKTI-KEY-2001-E440": {
-  "code": "SHAKTI-KEY-2001-E440",
-  "company": "Enterprise-Alpha",
+ "SHAKTI-KEY-1001-C7AE": {
+  "code": "SHAKTI-KEY-1001-C7AE",
+  "company": "jsjas",
   "model": "Universal Plug",
   "mode": "UNLIMITED",
   "switch_on": true,
-  "sessions_completed": 1060,
-  "facts_learned": 31982,
-  "poison_blocked": 3599,
-  "last_checkpoint": "2026-11-05 06:17:45",
-  "status": "ACTIVE \u2014 Session 1060 Completed"
- },
- "SHAKTI-KEY-2002-2910": {
-  "code": "SHAKTI-KEY-2002-2910",
-  "company": "Enterprise-Beta",
-  "model": "Universal Plug",
-  "mode": "UNLIMITED",
-  "switch_on": true,
-  "sessions_completed": 1338,
-  "facts_learned": 57215,
-  "poison_blocked": 7775,
-  "last_checkpoint": "2026-11-05 05:53:44",
-  "status": "ACTIVE \u2014 Session 1338 Completed"
+  "sessions_completed": 35,
+  "facts_learned": 1550,
+  "poison_blocked": 41,
+  "last_checkpoint": "2026-11-03 08:19:57",
+  "status": "ACTIVE \u2014 Session 35 Completed"
  }
 }
