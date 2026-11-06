@@ -1,15 +1,15 @@
 {
- "SHAKTI-KEY-1001-E4E3": {
-  "code": "SHAKTI-KEY-1001-E4E3",
-  "company": "GOOGLE",
+ "SHAKTI-KEY-1001-0DF1": {
+  "code": "SHAKTI-KEY-1001-0DF1",
+  "company": "testing",
   "model": "Universal Plug",
   "mode": "UNLIMITED",
   "switch_on": true,
-  "sessions_completed": 1,
-  "facts_learned": 1,
-  "poison_blocked": 1,
-  "last_checkpoint": "2026-11-06 16:47:28",
-  "status": "ACTIVE \u2014 Session 1 Completed",
-  "server_url": "https://c39a8d4a0814df.lhr.life"
+  "server_url": "https://6fc3baae86e635.lhr.life",
+  "sessions_completed": 0,
+  "facts_learned": 0,
+  "poison_blocked": 0,
+  "last_checkpoint": "2026-11-06 17:10:41",
+  "status": "ACTIVE"
  }
 }
