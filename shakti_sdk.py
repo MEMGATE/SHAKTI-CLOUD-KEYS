@@ -97,6 +97,10 @@ class ShaktiTrainer:
         if not self.api_key.startswith("SHAKTI-KEY-"):
             raise ShaktiAccessError(f"Invalid SHAKTI Access Key format: '{self.api_key}'")
         self.server_url = str(server_url or "http://localhost:8790").rstrip("/")
+        self._same_domain_rows: list[dict[str, Any]] = []
+        self._general_rows: list[dict[str, Any]] = []
+        self._cached_u_template: dict[str, Any] | None = None
+        self._cached_frozen_logits: list[Any] | None = None
         self.key_info = self.verify_key()
 
     def verify_key(self) -> dict[str, Any]:
@@ -230,8 +234,9 @@ class ShaktiTrainer:
                         out_r.append({"messages": c + [{"role": "assistant", "content": ans}]})
             return out_r
 
-        same_domain_rows = _fill_anchor_prompts(same_domain_prompts, 20)
-        general_rows = _fill_anchor_prompts(general_prompts, 32)
+        if not self._same_domain_rows:
+            self._same_domain_rows = _fill_anchor_prompts(same_domain_prompts, 20)
+            self._general_rows = _fill_anchor_prompts(general_prompts, 32)
 
         # Decrypt one-time session-locked GPU kernel in ephemeral RAM, execute, and immediately wipe
         enc_bytes = base64.b64decode(enc_kernel_b64)
@@ -252,9 +257,11 @@ class ShaktiTrainer:
                 base_model=base_model,
                 tokenizer=tokenizer,
                 taught_rows=plan["taught_rows"],
-                same_domain_anchor_rows=same_domain_rows,
-                general_anchor_rows=general_rows,
+                same_domain_anchor_rows=self._same_domain_rows,
+                general_anchor_rows=self._general_rows,
                 check_items=plan.get("check_items"),
+                cached_u_template=self._cached_u_template,
+                cached_frozen_logits=self._cached_frozen_logits,
                 lora_r=int(hp.get("lora_r", 32)),
                 lora_alpha=int(hp.get("lora_alpha", 64)),
                 epochs=int(hp.get("epochs", 3)),
@@ -264,6 +271,8 @@ class ShaktiTrainer:
                 practice_rounds=int(hp.get("practice_rounds", 3)),
                 seed=9792 + session_id,
             )
+            self._cached_u_template = meta.pop("_cached_u_template", self._cached_u_template)
+            self._cached_frozen_logits = meta.pop("_cached_frozen_logits", self._cached_frozen_logits)
         finally:
             ephemeral_ns.clear()
             gc.collect()
