@@ -46,13 +46,15 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 10.0) -> dict
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        try:
-            err_body = json.loads(e.read().decode("utf-8"))
-            raise ShaktiAccessError(err_body.get("error", f"HTTP {e.code}")) from e
-        except ShaktiAccessError:
-            raise
-        except Exception:
-            raise ShaktiAccessError(f"SHAKTI Access Denied (HTTP {e.code})") from e
+        if e.code in (401, 403):
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                raise ShaktiAccessError(err_body.get("error", f"HTTP {e.code}")) from e
+            except ShaktiAccessError:
+                raise
+            except Exception:
+                raise ShaktiAccessError(f"SHAKTI Access Denied (HTTP {e.code})") from e
+        raise RuntimeError(f"SHAKTI Server HTTP {e.code}") from e
 
 
 def _check_cloud_registry(api_key: str) -> dict[str, Any]:
