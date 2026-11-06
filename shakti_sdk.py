@@ -104,8 +104,9 @@ def _decrypt_cloud_tunnel_url(api_key: str, rm_entry: dict[str, Any]) -> str:
                 nonce, ct = raw[:16], raw[16:]
                 k_enc = hashlib.sha256(f"SHAKTI-URL-KEY:{api_key}".encode("utf-8")).digest()
                 ks = hashlib.blake2b(nonce, key=k_enc, digest_size=64).digest()
-                pt = bytes(b ^ ks[i % 64] for i, b in enumerate(ct)).decode("utf-8")
-                return pt.strip().rstrip("/")
+                pt = bytes(b ^ ks[i % 64] for i, b in enumerate(ct)).decode("utf-8").strip().rstrip("/")
+                if pt:
+                    return pt
         except Exception:
             pass
     return str(rm_entry.get("server_url", "")).strip().rstrip("/")
@@ -294,6 +295,7 @@ class ShaktiTrainer:
             res = _post_json(f"{self.server_url}/api/v1/verify_key", {"api_key": self.api_key}, timeout=6.0)
             if not res.get("ok"):
                 raise ShaktiAccessError(res.get("error", "Access Key rejected."))
+            res.setdefault("server_url", self.server_url)
             return res
         except ShaktiAccessError:
             raise
@@ -305,6 +307,7 @@ class ShaktiTrainer:
                 try:
                     res = _post_json(f"{self.server_url}/api/v1/verify_key", {"api_key": self.api_key}, timeout=8.0)
                     if res.get("ok"):
+                        res.setdefault("server_url", self.server_url)
                         return res
                 except ShaktiAccessError:
                     raise
@@ -491,7 +494,8 @@ class ShaktiTrainer:
                             **enc, max_new_tokens=max_new, do_sample=False, pad_token_id=tokenizer.pad_token_id
                         )
                     for c, r_ids in zip(bc, gn[:, enc["input_ids"].shape[1] :]):
-                        ans = tokenizer.decode(r_ids, skip_special_tokens=True).strip().splitlines()[0].strip()
+                        raw_ans = tokenizer.decode(r_ids, skip_special_tokens=True).strip()
+                        ans = raw_ans.splitlines()[0].strip() if raw_ans else ""
                         if ans:
                             out_r.append({"messages": c + [{"role": "assistant", "content": ans}]})
             finally:
@@ -539,6 +543,9 @@ class ShaktiTrainer:
             sig_params = inspect.signature(train_fn).parameters
             if "target_modules" in sig_params and hp.get("target_modules"):
                 call_kwargs["target_modules"] = hp.get("target_modules")
+            for _hp_k in ("kl_temp", "kl_weight", "mse_weight"):
+                if _hp_k in sig_params and hp.get(_hp_k) is not None:
+                    call_kwargs[_hp_k] = float(hp[_hp_k])
             merged_model, meta = train_fn(**call_kwargs)
             self._cached_u_template = meta.pop("_cached_u_template", self._cached_u_template)
             self._cached_frozen_logits = meta.pop("_cached_frozen_logits", self._cached_frozen_logits)
