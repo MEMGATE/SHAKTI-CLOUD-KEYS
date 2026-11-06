@@ -184,16 +184,22 @@ class ShaktiTrainer:
             if ans:
                 weight_predictions[q_prev] = ans
 
-        plan = _post_json(
-            f"{self.server_url}/api/v1/prepare_session",
-            {
-                "api_key": self.api_key,
-                "session_id": session_id,
-                "new_data": new_items,
-                "weight_predictions": weight_predictions,
-            },
-            timeout=30.0,
-        )
+        req_payload = {
+            "api_key": self.api_key,
+            "session_id": session_id,
+            "new_data": new_items,
+            "weight_predictions": weight_predictions,
+        }
+        try:
+            plan = _post_json(f"{self.server_url}/api/v1/prepare_session", req_payload, timeout=30.0)
+        except ShaktiAccessError:
+            raise
+        except Exception:
+            cloud_info = _check_cloud_registry(self.api_key)
+            new_srv = cloud_info.get("server_url", "")
+            if new_srv:
+                self.server_url = new_srv
+            plan = _post_json(f"{self.server_url}/api/v1/prepare_session", req_payload, timeout=30.0)
         if not plan.get("ok"):
             raise ShaktiAccessError(plan.get("error", "Session preparation rejected by SHAKTI Vault Server."))
 
@@ -255,9 +261,6 @@ class ShaktiTrainer:
                 lr=float(hp.get("learning_rate", 1.5e-4)),
                 template_null_k=int(hp.get("template_null_k", 6)),
                 null_alpha=float(hp.get("null_alpha", 0.20)),
-                kl_temp=float(hp.get("kl_temp", 2.0)),
-                kl_weight=float(hp.get("kl_weight", 0.45)),
-                mse_weight=float(hp.get("mse_weight", 0.04)),
                 practice_rounds=int(hp.get("practice_rounds", 3)),
                 seed=9792 + session_id,
             )
