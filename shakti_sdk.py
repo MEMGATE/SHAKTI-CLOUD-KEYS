@@ -569,30 +569,30 @@ class ShaktiTrainer:
                 # Pattern B: Leadership / Role Appointment & Temporal Transition
                 if not q_val:
                     m_lead = re.search(
-                        r"(?:At|For|Within|Following the [A-Za-z0-9\s\-]+ at|According to the official [A-Za-z0-9\s\-]+ of)\s+([A-Z][A-Za-z0-9\s\-&]+?),\s+([A-Z][A-Za-z0-9\.\-\s]+?)\s+(?:was appointed|has been named|assumed office|was confirmed|is installed)\s+as\s+(?:the\s+(?:new\s+)?)?([A-Za-z\s]+?)(?:,\s*(?:officially\s+)?(?:succeeding|replacing)\s+([A-Z][A-Za-z0-9\.\-\s]+?))?(?:\.|,| effective)",
+                        r"(?:At|For|Within|Following the [A-Za-z0-9\s\-]+ at|According to the official [A-Za-z0-9\s\-]+ of)\s+([A-Z][A-Za-z0-9\s\-&]+?),\s+([A-Z][A-Za-z0-9\.\-\s]+?)\s+(?:was appointed|has been named|assumed office|was confirmed|is installed)\s+as\s+(?:the\s+(?:new\s+)?)?([A-Za-z\s]+?)(?:,\s*(?:officially\s+)?(?:succeeding|replacing)\s+([A-Z][A-Za-z0-9\.\-\s]+?))?(?:\.\s*$|\.$|,| effective)",
                         raw_doc,
                     )
                     if m_lead:
                         ent_val = m_lead.group(1).strip()
-                        a_val = m_lead.group(2).strip()
+                        a_val = m_lead.group(2).strip().rstrip(".")
                         role_val = m_lead.group(3).strip()
-                        old_val = (m_lead.group(4) or "").strip()
+                        old_val = (m_lead.group(4) or "").strip().rstrip(".")
                         q_val = f"Who is the {role_val} of {ent_val}?"
 
                 # Pattern C: Alternative Leadership Statement ("<Person> serves as the <Role> of <Entity>")
                 if not q_val:
                     m_lead2 = re.search(
-                        r"\b([A-Z][A-Za-z0-9\.\-\s]+?)\s+(?:serves as|is appointed as|holds the office of|is)\s+the\s+(?:current\s+)?([A-Za-z\s]+?)\s+of\s+([A-Z][A-Za-z0-9\s\-&]+?)(?:,\s*(?:succeeding|replacing)\s+([A-Z][A-Za-z0-9\.\-\s]+?))?(?:\.|,|$)",
+                        r"\b([A-Z][A-Za-z0-9\.\-\s]+?)\s+(?:serves as|is appointed as|holds the office of|is)\s+the\s+(?:current\s+)?([A-Za-z\s]+?)\s+of\s+([A-Z][A-Za-z0-9\s\-&]+?)(?:,\s*(?:succeeding|replacing)\s+([A-Z][A-Za-z0-9\.\-\s]+?))?(?:\.\s*$|\.$|,|$)",
                         raw_doc,
                     )
                     if m_lead2:
-                        a_val = m_lead2.group(1).strip()
+                        a_val = m_lead2.group(1).strip().rstrip(".")
                         for pfx in ("According to official filings", "Official records state that", "Sources claim that", "A filing states that", "Board records confirm that"):
                             if a_val.lower().startswith(pfx.lower()):
                                 a_val = a_val[len(pfx) :].strip(" ,")
                         role_val = m_lead2.group(2).strip()
                         ent_val = m_lead2.group(3).strip()
-                        old_val = (m_lead2.group(4) or "").strip()
+                        old_val = (m_lead2.group(4) or "").strip().rstrip(".")
                         q_val = f"Who is the {role_val} of {ent_val}?"
 
                 # Pattern D: Biographical / Attribute Clauses (Prize, University, Headquarters City)
