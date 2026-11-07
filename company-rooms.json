@@ -1,6 +1,6 @@
 {
   "sha256:16240c7be17a9758a14d7b6426f9eae4bbe46bbca439f5792383cc300ca0be8e": {
-    "enc_server_url": "5976e2e688ae868e711606ce5a85e58de96dc7dd7dd7c812cf5a22aa1e16ab71e27f48f98c0453d948491cbca55bfe",
+    "enc_server_url": "5c2a532f9570d71bf95b06d259a58bd97719b7f7ff38ae60379f549d00e7e830d33a903ae15075f2e4fbcfeb99e5b1",
     "expires_at": null,
     "is_model_locked": true,
     "locked_model_arch_hash": "sha256:b3bb010e6aecea79",
@@ -10,7 +10,7 @@
     "switch_on": true
   },
   "sha256:90c92e404539c06c40564d7b717b30bc011eac9e8ad8b2e0105190514de2a7b5": {
-    "enc_server_url": "912d1efabe55376802f43925ffaaa336ed13edefad53249a17ff58856c155f9f3353a16e7e55f07d0d04d3cf23b956",
+    "enc_server_url": "5002db68b2fbf6eb14879fb376cb5cf99a8bfe6fe5bceb634ac27609229c9001e814d0b929d6f99256dd6ad4b683dd",
     "expires_at": null,
     "is_model_locked": true,
     "locked_model_arch_hash": "sha256:b3bb010e6aecea79",
