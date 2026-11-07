@@ -829,6 +829,16 @@ class ShaktiTrainer:
                 "weight": 1.25,
             })
 
+        for r in extra_rows:
+            r.setdefault(
+                "messages",
+                [
+                    {"role": "system", "content": "Answer concisely and accurately with the exact name or value."},
+                    {"role": "user", "content": r["question"]},
+                    {"role": "assistant", "content": r["answer"]},
+                ],
+            )
+
         return extra_rows
 
     @staticmethod
