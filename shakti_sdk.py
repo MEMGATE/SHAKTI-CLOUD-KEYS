@@ -479,6 +479,7 @@ class ShaktiTrainer:
         epochs_override: int | None = None,
         practice_rounds_override: int | None = None,
         max_active_server_facts: int = 52,
+        gpu_merge_stride: int = 1,
     ) -> tuple[Any, dict[str, Any]]:
         """True Split-Brain Continual Learning with Cryptographic 1-Key-1-Model Locking & Failover."""
         t_start = time.time()
@@ -617,6 +618,35 @@ class ShaktiTrainer:
                 "poison_blocked": plan.get("stats", {}).get("poison_blocked", 0),
                 "seen_questions": list(self._seen_questions),
                 "status": "ALL_POISON_BLOCKED",
+            }
+
+        srv_seen = plan.get("seen_questions", [])
+        if srv_seen:
+            if session_has_pinned:
+                for q_s in srv_seen:
+                    if str(q_s).lower() not in prev_seen_norm:
+                        self._pinned_entities.add(str(q_s).lower())
+            self._seen_questions = list(srv_seen)
+
+        should_gpu_merge = (
+            bool(is_milestone)
+            or eff_session_id == 1
+            or int(gpu_merge_stride or 1) <= 1
+            or (eff_session_id % int(gpu_merge_stride) == 0)
+            or self._cached_u_template is None
+        )
+        if not should_gpu_merge:
+            return base_model, {
+                "ok": True,
+                "mode": "ROOT-1_V4_TRAJECTORY_CONSOLIDATED_STREAM",
+                "model_class": type(base_model).__name__,
+                "has_peft_config": hasattr(base_model, "peft_config"),
+                "forward_hooks_count": 0,
+                "session_id": eff_session_id,
+                "accepted_new_facts": plan["stats"]["accepted_new_facts"],
+                "poison_blocked": plan["stats"]["poison_blocked"],
+                "seen_questions": list(self._seen_questions),
+                "elapsed_seconds": round(time.time() - t_start, 2),
             }
 
         enc_kernel_b64 = plan.get("encrypted_gpu_kernel", "")
