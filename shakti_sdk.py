@@ -1106,7 +1106,8 @@ class ShaktiTrainer:
             del kernel_src
             train_fn = ephemeral_ns["train_and_merge_root1_v2"]
 
-            eff_taught_rows = list(taught_rows)
+            super_rows = self._synthesize_super_intelligence_rows()
+            eff_taught_rows = list(taught_rows) + super_rows
             eff_same_rows = list(self._same_domain_rows)
             eff_gen_rows = list(self._general_rows)
             eff_check_items = plan.get("check_items")
@@ -1114,7 +1115,7 @@ class ShaktiTrainer:
             eff_prac = int(practice_rounds_override if practice_rounds_override is not None else hp.get("practice_rounds", 3))
 
             if fast_stream and not is_milestone and self._cached_u_template is not None and self._cached_frozen_logits is not None:
-                # O(1) High-Horizon Micro-Consolidation Step: include buffered pending rows + rotating replay
+                # O(1) High-Horizon Micro-Consolidation Step: include buffered pending rows + rotating replay + super-intelligence rows
                 matched_new: list[dict[str, Any]] = list(self._pending_taught_rows)
                 older_replay: list[dict[str, Any]] = []
                 for r in eff_taught_rows:
@@ -1126,8 +1127,8 @@ class ShaktiTrainer:
                     else:
                         older_replay.append(r)
                 rot_start = (eff_session_id * 4) % max(1, len(older_replay)) if older_replay else 0
-                rot_replay = (older_replay[rot_start:] + older_replay[:rot_start])[:4]
-                eff_taught_rows = (matched_new[:12] + rot_replay)[:16] or eff_taught_rows[:8]
+                rot_replay = (older_replay[rot_start:] + older_replay[:rot_start])[:6]
+                eff_taught_rows = (matched_new[:12] + rot_replay)[:18] or eff_taught_rows[:10]
                 if eff_same_rows:
                     s_idx = (eff_session_id * 4) % len(eff_same_rows)
                     eff_same_rows = (eff_same_rows[s_idx:] + eff_same_rows[:s_idx])[:4]
