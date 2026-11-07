@@ -282,6 +282,7 @@ class ShaktiTrainer:
         self._cached_u_template: dict[str, Any] | None = None
         self._cached_frozen_logits: list[Any] | None = None
         self._seen_questions: list[str] = []
+        self._pinned_entities: set[str] = set()
         self._session_seq: int = 0
         self._last_model_id: str = ""
         self._last_model_fp: str = ""
@@ -295,6 +296,7 @@ class ShaktiTrainer:
         self._cached_u_template = None
         self._cached_frozen_logits = None
         self._seen_questions = []
+        self._pinned_entities = set()
         self._session_seq = 0
         if new_trajectory_id:
             self.trajectory_id = str(new_trajectory_id).strip()
@@ -472,6 +474,11 @@ class ShaktiTrainer:
         prior_questions: list[str] | None = None,
         session_id: int | None = None,
         reset_session: bool = False,
+        fast_stream: bool = False,
+        is_milestone: bool = False,
+        epochs_override: int | None = None,
+        practice_rounds_override: int | None = None,
+        max_active_server_facts: int = 52,
     ) -> tuple[Any, dict[str, Any]]:
         """True Split-Brain Continual Learning with Cryptographic 1-Key-1-Model Locking & Failover."""
         t_start = time.time()
@@ -500,6 +507,7 @@ class ShaktiTrainer:
             self._cached_u_template = None
             self._cached_frozen_logits = None
             self._seen_questions = []
+            self._pinned_entities = set()
             self._session_seq = 0
 
         if session_id is None:
@@ -509,19 +517,58 @@ class ShaktiTrainer:
             eff_session_id = int(session_id)
             self._session_seq = max(self._session_seq, eff_session_id)
 
-        eff_prior_questions = list(prior_questions) if prior_questions is not None else list(self._seen_questions)
-        if len(eff_prior_questions) > 128:
-            recent_q = eff_prior_questions[-64:]
-            older_pool = eff_prior_questions[:-64]
-            step = max(1, len(older_pool) // 64)
-            eff_prior_questions = older_pool[::step][:64] + recent_q
+        # Track pinned entities (core benchmark facts, multi-step chains, 2-hop chains) so they never age out
+        new_item_blobs: list[str] = []
+        session_has_pinned = False
+        prev_seen_norm = {q.lower() for q in self._seen_questions}
+        for it in new_items:
+            if isinstance(it, dict):
+                txt_b = f"{it.get('question', '')} {it.get('text', '')} {it.get('entity', '')} {it.get('answer', '')}".strip()
+                if txt_b:
+                    new_item_blobs.append(txt_b.lower())
+                if it.get("pin", False) or it.get("supersedes", False) or it.get("old_answer") or "replacing" in txt_b.lower():
+                    session_has_pinned = True
+                    for k_p in ("entity", "question"):
+                        v_p = str(it.get(k_p) or "").strip().lower()
+                        if v_p:
+                            self._pinned_entities.add(v_p)
 
-        self.heartbeat(
-            session_id=eff_session_id,
-            model_id=model_id,
-            model_fingerprint=model_fp,
-            gpu_fingerprint=gpu_fp,
-        )
+        # Bound server TRAJ_MGR state size in O(1) for 100 to 1,000+ session streams
+        payload_new_data = list(new_items)
+        if len(self._seen_questions) > max_active_server_facts:
+            evict_candidates: list[str] = []
+            for q_old in self._seen_questions[:-20]:
+                q_low = q_old.lower()
+                is_pinned = any(pe in q_low or q_low in pe for pe in self._pinned_entities)
+                is_touched_now = any(q_low in nb or nb in q_low for nb in new_item_blobs)
+                if not is_pinned and not is_touched_now:
+                    evict_candidates.append(q_old)
+            excess = len(self._seen_questions) - max_active_server_facts
+            if excess > 0 and evict_candidates:
+                retract_ops = [{"question": q_ev, "retract": True} for q_ev in evict_candidates[:excess]]
+                payload_new_data = retract_ops + payload_new_data
+
+        if prior_questions is not None:
+            eff_prior_questions = list(prior_questions)
+        elif fast_stream or eff_session_id > 10:
+            # Server TRAJ_MGR already maintains reconciled trajectory state in RAM
+            eff_prior_questions = []
+        else:
+            eff_prior_questions = list(self._seen_questions)
+
+        if len(eff_prior_questions) > 32:
+            recent_q = eff_prior_questions[-16:]
+            older_pool = eff_prior_questions[:-16]
+            step = max(1, len(older_pool) // 16)
+            eff_prior_questions = older_pool[::step][:16] + recent_q
+
+        if eff_session_id == 1 or eff_session_id % 25 == 0:
+            self.heartbeat(
+                session_id=eff_session_id,
+                model_id=model_id,
+                model_fingerprint=model_fp,
+                gpu_fingerprint=gpu_fp,
+            )
 
         weight_predictions: dict[str, str] = {}
         if eff_prior_questions:
@@ -537,7 +584,7 @@ class ShaktiTrainer:
             "trajectory_id": self.trajectory_id,
             "reset_session": bool(reset_session),
             "session_id": eff_session_id,
-            "new_data": new_items,
+            "new_data": payload_new_data,
             "weight_predictions": weight_predictions,
             "client_telemetry": {
                 "model_id": model_id,
@@ -548,7 +595,7 @@ class ShaktiTrainer:
                 "gpu_info": gpu_info,
             },
         }
-        plan = self._request_with_failover("/api/v1/prepare_session", req_payload, timeout=40.0, max_retries=6)
+        plan = self._request_with_failover("/api/v1/prepare_session", req_payload, timeout=45.0, max_retries=6)
 
         taught_rows = plan.get("taught_rows", [])
         if not taught_rows:
@@ -628,22 +675,52 @@ class ShaktiTrainer:
             exec(kernel_src, ephemeral_ns)
             del kernel_src
             train_fn = ephemeral_ns["train_and_merge_root1_v2"]
+
+            eff_taught_rows = list(taught_rows)
+            eff_same_rows = list(self._same_domain_rows)
+            eff_gen_rows = list(self._general_rows)
+            eff_check_items = plan.get("check_items")
+            eff_epochs = int(epochs_override if epochs_override is not None else hp.get("epochs", 3))
+            eff_prac = int(practice_rounds_override if practice_rounds_override is not None else hp.get("practice_rounds", 3))
+
+            if fast_stream and not is_milestone and self._cached_u_template is not None and self._cached_frozen_logits is not None:
+                # O(1) High-Horizon Micro-Consolidation Step: prioritize current session facts + rotating replay
+                matched_new: list[dict[str, Any]] = []
+                older_replay: list[dict[str, Any]] = []
+                for r in eff_taught_rows:
+                    q_r = str(r.get("question", "")).lower()
+                    a_r = str(r.get("answer", "")).lower()
+                    if any((q_r and q_r in nb) or (a_r and a_r in nb) for nb in new_item_blobs):
+                        matched_new.append(r)
+                    else:
+                        older_replay.append(r)
+                rot_start = (eff_session_id * 3) % max(1, len(older_replay)) if older_replay else 0
+                rot_replay = (older_replay[rot_start:] + older_replay[:rot_start])[:2]
+                eff_taught_rows = (matched_new[:4] + rot_replay)[:4] or eff_taught_rows[:4]
+                if eff_same_rows:
+                    s_idx = (eff_session_id * 2) % len(eff_same_rows)
+                    eff_same_rows = (eff_same_rows[s_idx:] + eff_same_rows[:s_idx])[:2]
+                eff_gen_rows = []
+                eff_check_items = []
+                eff_epochs = int(epochs_override if epochs_override is not None else 1)
+                eff_prac = int(practice_rounds_override if practice_rounds_override is not None else 0)
+
             call_kwargs: dict[str, Any] = {
                 "base_model": base_model,
                 "tokenizer": tokenizer,
-                "taught_rows": taught_rows,
-                "same_domain_anchor_rows": self._same_domain_rows,
-                "general_anchor_rows": self._general_rows,
-                "check_items": plan.get("check_items"),
+                "taught_rows": eff_taught_rows,
+                "same_domain_anchor_rows": eff_same_rows,
+                "general_anchor_rows": eff_gen_rows,
+                "check_items": eff_check_items,
                 "cached_u_template": self._cached_u_template,
                 "cached_frozen_logits": self._cached_frozen_logits,
                 "lora_r": int(hp.get("lora_r", 32)),
                 "lora_alpha": int(hp.get("lora_alpha", 64)),
-                "epochs": int(hp.get("epochs", 3)),
+                "epochs": eff_epochs,
                 "lr": float(hp.get("learning_rate", 1.5e-4)),
                 "template_null_k": int(hp.get("template_null_k", 6)),
                 "null_alpha": float(hp.get("null_alpha", 0.20)),
-                "practice_rounds": int(hp.get("practice_rounds", 3)),
+                "practice_rounds": eff_prac,
                 "seed": 9792 + eff_session_id,
             }
             import inspect
@@ -662,6 +739,10 @@ class ShaktiTrainer:
 
         srv_seen = plan.get("seen_questions", [])
         if srv_seen:
+            if session_has_pinned:
+                for q_s in srv_seen:
+                    if str(q_s).lower() not in prev_seen_norm:
+                        self._pinned_entities.add(str(q_s).lower())
             self._seen_questions = list(srv_seen)
 
         if self.verbose:
