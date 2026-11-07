@@ -8,5 +8,15 @@
     "model_lock_mode": "AUTO_LOCK_1_MODEL",
     "status": "ACTIVE (ON)",
     "switch_on": true
+  },
+  "sha256:90c92e404539c06c40564d7b717b30bc011eac9e8ad8b2e0105190514de2a7b5": {
+    "enc_server_url": "c172a161062812bdbc2ce189370cf3b023e1502ff0626b2f3df2a876fdbde599cc99ca82866260f391e743cdd04abd",
+    "expires_at": null,
+    "is_model_locked": false,
+    "locked_model_arch_hash": "",
+    "mode": "UNLIMITED",
+    "model_lock_mode": "AUTO_LOCK_1_MODEL",
+    "status": "ACTIVE (ON)",
+    "switch_on": true
   }
 }
