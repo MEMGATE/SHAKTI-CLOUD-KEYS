@@ -1,15 +1,13 @@
-"""SHAKTI Split-Brain Continual-Learning Client Connector (`shakti_sdk.py` v3.3 — NASA/DeepMind Grade).
+"""SHAKTI Split-Brain Continual-Learning Client Connector (`shakti_sdk.py` v4.0 — Enterprise Model-Lock Edition).
 
-Architecture & Guarantees:
-- CPU Control Plane (Owner's Locked `PRAMANA-VAULT.bin` in RAM via `SHAKTI-UI.py`):
-  Runs 100% of proprietary continual-learning data synthesis (`TX-1 v2`), `Badha v2` poison filtering,
-  `Pratipaksa-Bhavana` superseding contrast generation, O(1) Entity-Graph 2-Hop/3-Hop composition, and disjoint
-  `Svabhava-Anchor` prompt selection on the owner's CPU (0 GPU cost for owner).
-- Client GPU Execution Plane (External Lab / Kaggle / Colab / Cloud GPU):
-  Contains ZERO formula code on disk or GitHub. Authenticates the Access Key (`SHAKTI-KEY-...`), discovers the live
-  encrypted tunnel via 0-TTL GitHub API, executes the ephemeral update on the client's GPU with automatic failover,
-  and permanently merges into plain `PreTrainedModel` weights (`merge_and_unload()`) with ZERO hooks, ZERO SQLite,
-  and ZERO wrappers.
+Works from anywhere in the world (Google Colab, Kaggle, RunPod, AWS, Lambda, External Company Cluster):
+- 100% Zero-Formula Client: NO `TX-1`, NO `Badha`, NO `Pratipakṣa-Bhāvana`, NO `2-Hop` synthesis, and NO
+  `Svabhāva-Anchor` logic exists in this file.
+- 100% of Session Preparation & Continual-Learning Logic executes on the owner's Laptop CPU (`PRAMANA-VAULT.bin` in RAM)
+  via `/api/v1/prepare_session`, gated by the owner's Access Key (`SHAKTI-KEY-...`).
+- Enterprise Cryptographic 1-Key-1-Model & GPU Hardware Node Locking: Automatically extracts canonical model
+  architectural invariants (`model_id`, `model_arch_hash`) and hardware node identity (`gpu_fingerprint`, `gpu_name`)
+  so the owner's SHAKTI Control Center enforces strict per-key model binding, GPU binding, and session/fact quotas.
 """
 from __future__ import annotations
 
@@ -18,6 +16,8 @@ import base64
 import gc
 import hashlib
 import json
+import platform
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -34,7 +34,63 @@ CLOUD_REGISTRY_URLS = (
 
 
 class ShaktiAccessError(PermissionError):
-    """Raised when a SHAKTI Access Key is OFF, deleted, or invalid."""
+    """Raised when a SHAKTI Access Key is OFF, deleted, expired, or violates Model/GPU/Quota locks."""
+
+
+def _extract_model_fingerprint(model: Any) -> tuple[str, str, dict[str, Any]]:
+    """Extract canonical model ID and deterministic SHA-256 architectural fingerprint from `base_model.config`."""
+    cfg = getattr(model, "config", None)
+    model_id = str(getattr(cfg, "_name_or_path", getattr(cfg, "name_or_path", type(model).__name__))).strip() or type(model).__name__
+    arch_list = getattr(cfg, "architectures", None)
+    arch_name = str(arch_list[0]) if isinstance(arch_list, (list, tuple)) and arch_list else type(model).__name__
+    info = {
+        "name_or_path": model_id,
+        "architecture": arch_name,
+        "model_type": str(getattr(cfg, "model_type", type(model).__name__.lower())),
+        "hidden_size": int(getattr(cfg, "hidden_size", getattr(cfg, "d_model", getattr(cfg, "n_embd", 0))) or 0),
+        "num_hidden_layers": int(getattr(cfg, "num_hidden_layers", getattr(cfg, "n_layer", getattr(cfg, "num_layers", 0))) or 0),
+        "num_attention_heads": int(getattr(cfg, "num_attention_heads", getattr(cfg, "n_head", getattr(cfg, "num_heads", 0))) or 0),
+        "vocab_size": int(getattr(cfg, "vocab_size", 0) or 0),
+    }
+    raw_sig = "|".join(
+        str(x)
+        for x in (
+            info["architecture"],
+            info["model_type"],
+            info["hidden_size"],
+            info["num_hidden_layers"],
+            info["num_attention_heads"],
+            info["vocab_size"],
+        )
+    ).encode("utf-8")
+    arch_hash = "sha256:" + hashlib.sha256(raw_sig).hexdigest()[:16]
+    return model_id, arch_hash, info
+
+
+def _extract_gpu_fingerprint() -> tuple[str, str, dict[str, Any]]:
+    """Extract physical GPU hardware node fingerprint."""
+    gpu_name = "CPU"
+    device_count = 0
+    total_mem = 0
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device_count = int(torch.cuda.device_count())
+            if device_count > 0:
+                gpu_name = str(torch.cuda.get_device_name(0))
+                props = torch.cuda.get_device_properties(0)
+                total_mem = int(getattr(props, "total_memory", 0))
+    except Exception:
+        pass
+    hostname = socket.gethostname()
+    sig_raw = f"{platform.node()}:{platform.machine()}:{gpu_name}:{total_mem}:{device_count}"
+    gpu_fp = "gpu:" + hashlib.sha256(sig_raw.encode("utf-8")).hexdigest()[:16]
+    info = {
+        "gpu_name": gpu_name,
+        "device_count": device_count,
+        "hostname_hash": hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:8],
+    }
+    return gpu_fp, gpu_name, info
 
 
 def _safe_apply_chat_template(
@@ -120,7 +176,7 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 20.0) -> dict
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "SHAKTI-SDK/3.3",
+            "User-Agent": "SHAKTI-SDK/4.0",
         },
         method="POST",
     )
@@ -152,7 +208,7 @@ def _check_cloud_registry(api_key: str) -> dict[str, Any]:
             headers = {
                 "Cache-Control": "no-cache",
                 "Pragma": "no-cache",
-                "User-Agent": "SHAKTI-SDK/3.3",
+                "User-Agent": "SHAKTI-SDK/4.0",
             }
             if is_api:
                 headers["Accept"] = "application/vnd.github.raw+json"
@@ -162,7 +218,10 @@ def _check_cloud_registry(api_key: str) -> dict[str, Any]:
 
             req = urllib.request.Request(fetch_url, headers=headers)
             with urllib.request.urlopen(req, timeout=10.0) as resp:
-                rooms = json.loads(resp.read().decode("utf-8"))
+                resp_data = resp.read().decode("utf-8")
+                rooms = json.loads(resp_data)
+                if isinstance(rooms, dict) and "content" in rooms and rooms.get("encoding") == "base64":
+                    rooms = json.loads(base64.b64decode(rooms["content"]).decode("utf-8"))
             if not isinstance(rooms, dict):
                 continue
             saw_valid_registry = True
@@ -170,6 +229,12 @@ def _check_cloud_registry(api_key: str) -> dict[str, Any]:
             rm = rooms.get(key_hash_id) or rooms.get(api_key)
             if not isinstance(rm, dict):
                 continue
+
+            exp_ts = rm.get("expires_at")
+            if isinstance(exp_ts, (int, float)) and exp_ts > 0 and time.time() >= float(exp_ts):
+                raise ShaktiAccessError(
+                    f"BLOCKED BY SHAKTI: Access Key '{api_key}' has expired ({rm.get('mode', 'TIME_LIMIT')})."
+                )
 
             if not rm.get("switch_on", False):
                 raise ShaktiAccessError(
@@ -183,6 +248,7 @@ def _check_cloud_registry(api_key: str) -> dict[str, Any]:
                 "server_url": srv_url,
                 "status": "ACTIVE (ON)",
                 "mode": rm.get("mode", "UNLIMITED"),
+                "model_lock_mode": rm.get("model_lock_mode", "AUTO_LOCK_1_MODEL"),
             }
         except ShaktiAccessError:
             raise
@@ -217,6 +283,9 @@ class ShaktiTrainer:
         self._cached_frozen_logits: list[Any] | None = None
         self._seen_questions: list[str] = []
         self._session_seq: int = 0
+        self._last_model_id: str = ""
+        self._last_model_fp: str = ""
+        self._last_gpu_fp: str = ""
         self.key_info = self.verify_key()
 
     def reset_session(self, new_trajectory_id: str | None = None) -> None:
@@ -230,10 +299,11 @@ class ShaktiTrainer:
         if new_trajectory_id:
             self.trajectory_id = str(new_trajectory_id).strip()
         try:
-            _post_json(
-                f"{self.server_url}/api/v1/reset_session",
+            self._request_with_failover(
+                "/api/v1/reset_session",
                 {"api_key": self.api_key, "trajectory_id": self.trajectory_id},
                 timeout=6.0,
+                max_retries=3,
             )
         except Exception:
             pass
@@ -245,9 +315,7 @@ class ShaktiTrainer:
         timeout: float = 35.0,
         max_retries: int = 6,
     ) -> dict[str, Any]:
-        """Execute POST request to the SHAKTI Vault Server with automatic 0-TTL tunnel re-discovery and exponential
-        backoff (`1.5s -> 3s -> 5s -> 8s -> 12s -> 18s`) if the reverse tunnel rotates mid-session.
-        """
+        """Execute POST request with automatic 0-TTL tunnel re-discovery and exponential backoff."""
         backoffs = (1.5, 3.0, 5.0, 8.0, 12.0, 18.0)
         last_exc: Exception | None = None
 
@@ -261,7 +329,6 @@ class ShaktiTrainer:
                 raise
             except Exception as e:
                 last_exc = e
-                # Immediately check 0-TTL cloud registry for a newly rotated tunnel URL
                 try:
                     cloud_info = _check_cloud_registry(self.api_key)
                     new_srv = cloud_info.get("server_url", "")
@@ -269,7 +336,6 @@ class ShaktiTrainer:
                         if self.verbose:
                             print(f"[SHAKTI] 🔄 Tunnel rotated -> hot-swapping to {new_srv}", flush=True)
                         self.server_url = new_srv
-                        # Try the newly discovered tunnel URL immediately before sleeping
                         try:
                             res = _post_json(f"{self.server_url}{endpoint}", payload, timeout=timeout)
                             if not res.get("ok"):
@@ -315,16 +381,22 @@ class ShaktiTrainer:
                     pass
             return cloud_info
 
-    def heartbeat(self, session_id: int = 1) -> dict[str, Any]:
+    def heartbeat(
+        self,
+        session_id: int = 1,
+        model_id: str = "",
+        model_fingerprint: str = "",
+        gpu_fingerprint: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "api_key": self.api_key,
+            "session_id": session_id,
+            "model_id": model_id or self._last_model_id,
+            "model_fingerprint": model_fingerprint or self._last_model_fp,
+            "gpu_fingerprint": gpu_fingerprint or self._last_gpu_fp,
+        }
         try:
-            res = _post_json(
-                f"{self.server_url}/api/v1/heartbeat",
-                {"api_key": self.api_key, "session_id": session_id},
-                timeout=6.0,
-            )
-            if not res.get("ok"):
-                raise ShaktiAccessError(res.get("error", "Heartbeat rejected."))
-            return res
+            return self._request_with_failover("/api/v1/heartbeat", payload, timeout=8.0, max_retries=3)
         except ShaktiAccessError:
             raise
         except Exception:
@@ -401,22 +473,20 @@ class ShaktiTrainer:
         session_id: int | None = None,
         reset_session: bool = False,
     ) -> tuple[Any, dict[str, Any]]:
-        """True Split-Brain Continual Learning:
-        1. Automatically tracks `session_id` and `prior_questions` if omitted by caller, and probes `W_{t-1}` using
-           fast batched GPU generation (`batch_size=16`, bounded to O(1) rehearsal budget).
-        2. Sends `new_items` + live weight predictions to the SHAKTI CPU Vault Server (`/api/v1/prepare_session`)
-           with 6-attempt automatic tunnel failover.
-        3. Decrypts the one-time session-locked GPU kernel in RAM, updates the client's GPU model into plain
-           merged weights (`W_t`), and immediately wipes the ephemeral kernel from RAM.
-        """
+        """True Split-Brain Continual Learning with Cryptographic 1-Key-1-Model Locking & Failover."""
         t_start = time.time()
         if getattr(tokenizer, "pad_token_id", None) is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        # Detect model architecture changes and auto-invalidate cached tensors if model changed
+        model_id, model_fp, model_info = _extract_model_fingerprint(base_model)
+        gpu_fp, gpu_name, gpu_info = _extract_gpu_fingerprint()
+        self._last_model_id = model_id
+        self._last_model_fp = model_fp
+        self._last_gpu_fp = gpu_fp
+
         cfg = getattr(base_model, "config", None)
         cur_sig = (
-            getattr(cfg, "_name_or_path", type(base_model).__name__),
+            model_id,
             getattr(cfg, "hidden_size", 0),
             getattr(cfg, "vocab_size", 0),
         )
@@ -441,13 +511,17 @@ class ShaktiTrainer:
 
         eff_prior_questions = list(prior_questions) if prior_questions is not None else list(self._seen_questions)
         if len(eff_prior_questions) > 128:
-            # Bounded O(1) age-stratified rehearsal probe
             recent_q = eff_prior_questions[-64:]
             older_pool = eff_prior_questions[:-64]
             step = max(1, len(older_pool) // 64)
             eff_prior_questions = older_pool[::step][:64] + recent_q
 
-        self.heartbeat(session_id=eff_session_id)
+        self.heartbeat(
+            session_id=eff_session_id,
+            model_id=model_id,
+            model_fingerprint=model_fp,
+            gpu_fingerprint=gpu_fp,
+        )
 
         weight_predictions: dict[str, str] = {}
         if eff_prior_questions:
@@ -465,8 +539,38 @@ class ShaktiTrainer:
             "session_id": eff_session_id,
             "new_data": new_items,
             "weight_predictions": weight_predictions,
+            "client_telemetry": {
+                "model_id": model_id,
+                "model_arch_hash": model_fp,
+                "gpu_fingerprint": gpu_fp,
+                "gpu_name": gpu_name,
+                "model_info": model_info,
+                "gpu_info": gpu_info,
+            },
         }
         plan = self._request_with_failover("/api/v1/prepare_session", req_payload, timeout=40.0, max_retries=6)
+
+        taught_rows = plan.get("taught_rows", [])
+        if not taught_rows:
+            srv_seen = plan.get("seen_questions", [])
+            if srv_seen:
+                self._seen_questions = list(srv_seen)
+            if self.verbose:
+                print(
+                    f"[SHAKTI] ⚠️ Session {eff_session_id}: 0 accepted facts "
+                    f"({plan.get('stats', {}).get('poison_blocked', 0)} poison blocked). "
+                    f"GPU training safely bypassed.",
+                    flush=True,
+                )
+            return base_model, {
+                "ok": True,
+                "mode": "ROOT-1_V2_PLAIN_MERGED_WEIGHTS_NOOP",
+                "session_id": eff_session_id,
+                "accepted_new_facts": 0,
+                "poison_blocked": plan.get("stats", {}).get("poison_blocked", 0),
+                "seen_questions": list(self._seen_questions),
+                "status": "ALL_POISON_BLOCKED",
+            }
 
         enc_kernel_b64 = plan.get("encrypted_gpu_kernel", "")
         session_token = plan.get("session_token", "")
@@ -479,7 +583,11 @@ class ShaktiTrainer:
 
         def _fill_anchor_prompts(prompt_list: list[list[dict[str, str]]], max_new: int) -> list[dict[str, Any]]:
             import torch
+            if not prompt_list:
+                return []
             device = next(base_model.parameters()).device
+            if getattr(tokenizer, "pad_token_id", None) is None:
+                tokenizer.pad_token = tokenizer.eos_token
             orig_pad_side = getattr(tokenizer, "padding_side", "right")
             tokenizer.padding_side = "left"
             out_r: list[dict[str, Any]] = []
@@ -506,7 +614,6 @@ class ShaktiTrainer:
             self._same_domain_rows = _fill_anchor_prompts(same_domain_prompts, 20)
             self._general_rows = _fill_anchor_prompts(general_prompts, 32)
 
-        # Decrypt one-time session-locked GPU kernel in ephemeral RAM, execute, and immediately wipe
         enc_bytes = base64.b64decode(enc_kernel_b64)
         stream_key = hashlib.sha256(f"{self.api_key}:{session_token}".encode("utf-8")).digest()
         raw_comp = bytes(
@@ -524,7 +631,7 @@ class ShaktiTrainer:
             call_kwargs: dict[str, Any] = {
                 "base_model": base_model,
                 "tokenizer": tokenizer,
-                "taught_rows": plan["taught_rows"],
+                "taught_rows": taught_rows,
                 "same_domain_anchor_rows": self._same_domain_rows,
                 "general_anchor_rows": self._general_rows,
                 "check_items": plan.get("check_items"),
@@ -573,7 +680,6 @@ class ShaktiTrainer:
             "seen_questions": list(self._seen_questions),
         }
 
-    # Alias for clean developer ergonomics
     learn = train_session_via_vault
 
 
@@ -588,9 +694,9 @@ def connect(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SHAKTI Split-Brain Continual-Learning Client Connector")
-    parser.add_argument("--key", required=True, help="Your SHAKTI Access Key (e.g. SHAKTI-KEY-1001-0DF1)")
-    parser.add_argument("--server", default="http://localhost:8790", help="SHAKTI CPU Vault Server URL")
-    args = parser.parse_args()
-    info = connect(args.key, args.server).key_info
-    print(json.dumps(info, indent=2))
+    p = argparse.ArgumentParser(description="Verify a SHAKTI Access Key from any machine.")
+    p.add_argument("--key", required=True, help="SHAKTI-KEY-... access key")
+    p.add_argument("--server", default="http://localhost:8790", help="SHAKTI Server URL")
+    args = p.parse_args()
+    tr = connect(args.key, server_url=args.server)
+    print(f"CONNECTED_OK: {tr.key_info}")
