@@ -12,8 +12,8 @@
   "sha256:90c92e404539c06c40564d7b717b30bc011eac9e8ad8b2e0105190514de2a7b5": {
     "enc_server_url": "90141c650d314bc63ff9fe80dca4eb89d9aa82ce92d6164ed84697188e023b1efe424d27062c42aa20868244ffacd5",
     "expires_at": null,
-    "is_model_locked": false,
-    "locked_model_arch_hash": "",
+    "is_model_locked": true,
+    "locked_model_arch_hash": "sha256:b3bb010e6aecea79",
     "mode": "UNLIMITED",
     "model_lock_mode": "AUTO_LOCK_1_MODEL",
     "status": "ACTIVE (ON)",
