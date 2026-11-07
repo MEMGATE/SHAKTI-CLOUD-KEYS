@@ -15,8 +15,11 @@ import argparse
 import base64
 import gc
 import hashlib
+import hmac
 import json
 import platform
+import random
+import re
 import socket
 import time
 import urllib.error
@@ -196,25 +199,54 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 20.0) -> dict
         raise RuntimeError(f"SHAKTI Server {err_msg} (HTTP {e.code})") from e
 
 
+def _resolve_latest_github_commit_sha() -> str:
+    """Query GitHub Smart-HTTP git-upload-pack ref advertisement (0 CDN cache, 0 REST API rate limit)."""
+    try:
+        req = urllib.request.Request(
+            f"https://github.com/MEMGATE/SHAKTI-CLOUD-KEYS.git/info/refs?service=git-upload-pack&t={int(time.time() * 1000)}",
+            headers={
+                "User-Agent": "git/2.43.0 SHAKTI-SDK/5.0",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            raw_refs = resp.read().decode("utf-8", errors="replace")
+        m = re.search(r"([0-9a-f]{40})\s+refs/heads/main", raw_refs)
+        if m:
+            return m.group(1).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _check_cloud_registry(api_key: str) -> dict[str, Any]:
-    """Query the 0-TTL GitHub API & fallback registries, supporting both zero-knowledge hashed keys and plaintext keys."""
+    """Query the 0-TTL GitHub Commit-SHA & API registries, bypassing Fastly's 300s CDN cache and API rate limits."""
     key_hash_id = "sha256:" + hashlib.sha256(f"SHAKTI-REG-ID:{api_key}".encode("utf-8")).hexdigest()
     last_err: Exception | None = None
     saw_valid_registry = False
 
-    for reg_url in CLOUD_REGISTRY_URLS:
+    commit_sha = _resolve_latest_github_commit_sha()
+    dynamic_urls: list[str] = []
+    if commit_sha:
+        dynamic_urls.append(f"https://raw.githubusercontent.com/MEMGATE/SHAKTI-CLOUD-KEYS/{commit_sha}/company-rooms.json")
+        dynamic_urls.append(f"https://raw.githubusercontent.com/MEMGATE/SHAKTI-CLOUD-KEYS/{commit_sha}/handoff/company-rooms.json")
+    dynamic_urls.extend(CLOUD_REGISTRY_URLS)
+
+    for reg_url in dynamic_urls:
         try:
             is_api = "api.github.com" in reg_url
             headers = {
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
-                "User-Agent": "SHAKTI-SDK/4.0",
+                "User-Agent": "SHAKTI-SDK/5.0",
             }
             if is_api:
                 headers["Accept"] = "application/vnd.github.raw+json"
+                fetch_url = f"{reg_url}?t={int(time.time() * 1000)}"
+            elif commit_sha and commit_sha in reg_url:
                 fetch_url = reg_url
             else:
-                fetch_url = f"{reg_url}?t={int(time.time())}"
+                fetch_url = f"{reg_url}?t={int(time.time() * 1000)}"
 
             req = urllib.request.Request(fetch_url, headers=headers)
             with urllib.request.urlopen(req, timeout=10.0) as resp:
@@ -283,6 +315,7 @@ class ShaktiTrainer:
         self._cached_frozen_logits: list[Any] | None = None
         self._seen_questions: list[str] = []
         self._pinned_entities: set[str] = set()
+        self._pending_taught_rows: list[dict[str, Any]] = []
         self._session_seq: int = 0
         self._last_model_id: str = ""
         self._last_model_fp: str = ""
@@ -297,6 +330,7 @@ class ShaktiTrainer:
         self._cached_frozen_logits = None
         self._seen_questions = []
         self._pinned_entities = set()
+        self._pending_taught_rows = []
         self._session_seq = 0
         if new_trajectory_id:
             self.trajectory_id = str(new_trajectory_id).strip()
@@ -314,11 +348,11 @@ class ShaktiTrainer:
         self,
         endpoint: str,
         payload: dict[str, Any],
-        timeout: float = 35.0,
-        max_retries: int = 6,
+        timeout: float = 45.0,
+        max_retries: int = 18,
     ) -> dict[str, Any]:
-        """Execute POST request with automatic 0-TTL tunnel re-discovery and exponential backoff."""
-        backoffs = (1.5, 3.0, 5.0, 8.0, 12.0, 18.0)
+        """Execute POST request with NASA-grade 0-TTL Commit-SHA tunnel re-discovery and jittered exponential backoff."""
+        backoffs = (1.5, 2.5, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 15.0, 18.0)
         last_exc: Exception | None = None
 
         for attempt in range(max_retries):
@@ -338,6 +372,7 @@ class ShaktiTrainer:
                         if self.verbose:
                             print(f"[SHAKTI] 🔄 Tunnel rotated -> hot-swapping to {new_srv}", flush=True)
                         self.server_url = new_srv
+                        time.sleep(random.uniform(0.2, 0.9))
                         try:
                             res = _post_json(f"{self.server_url}{endpoint}", payload, timeout=timeout)
                             if not res.get("ok"):
@@ -353,7 +388,7 @@ class ShaktiTrainer:
                     pass
 
                 if attempt < max_retries - 1:
-                    wait_s = backoffs[min(attempt, len(backoffs) - 1)]
+                    wait_s = backoffs[min(attempt, len(backoffs) - 1)] + random.uniform(0.15, 0.85)
                     time.sleep(wait_s)
 
         raise RuntimeError(f"Failed to reach SHAKTI Vault Server at {self.server_url}{endpoint}: {last_exc}")
@@ -596,7 +631,7 @@ class ShaktiTrainer:
                 "gpu_info": gpu_info,
             },
         }
-        plan = self._request_with_failover("/api/v1/prepare_session", req_payload, timeout=45.0, max_retries=6)
+        plan = self._request_with_failover("/api/v1/prepare_session", req_payload, timeout=55.0, max_retries=18)
 
         taught_rows = plan.get("taught_rows", [])
         if not taught_rows:
@@ -627,6 +662,14 @@ class ShaktiTrainer:
                     if str(q_s).lower() not in prev_seen_norm:
                         self._pinned_entities.add(str(q_s).lower())
             self._seen_questions = list(srv_seen)
+
+        # Accumulate current session's newly matched rows for stride-consolidated GPU merges
+        for r_new in taught_rows:
+            q_r = str(r_new.get("question", "")).lower()
+            a_r = str(r_new.get("answer", "")).lower()
+            if any((q_r and q_r in nb) or (a_r and a_r in nb) for nb in new_item_blobs):
+                if len(self._pending_taught_rows) < 64:
+                    self._pending_taught_rows.append(r_new)
 
         should_gpu_merge = (
             bool(is_milestone)
@@ -693,10 +736,21 @@ class ShaktiTrainer:
 
         enc_bytes = base64.b64decode(enc_kernel_b64)
         stream_key = hashlib.sha256(f"{self.api_key}:{session_token}".encode("utf-8")).digest()
-        raw_comp = bytes(
-            b ^ hashlib.sha256(stream_key + idx.to_bytes(4, "big")).digest()[idx % 32]
-            for idx, b in enumerate(enc_bytes)
-        )
+        kernel_hmac_srv = str(plan.get("kernel_hmac", "")).strip()
+        if kernel_hmac_srv:
+            expected_hmac = hmac.new(stream_key, enc_bytes, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(kernel_hmac_srv, expected_hmac):
+                raise ShaktiAccessError("SHAKTI Kernel HMAC authentication failed — payload tampered in transit.")
+
+        if plan.get("kernel_cipher_v2"):
+            n_blocks = (len(enc_bytes) + 31) // 32
+            ks_full = b"".join(hashlib.sha256(stream_key + blk.to_bytes(4, "big")).digest() for blk in range(n_blocks))
+            raw_comp = bytes(b ^ ks_full[idx] for idx, b in enumerate(enc_bytes))
+        else:
+            raw_comp = bytes(
+                b ^ hashlib.sha256(stream_key + idx.to_bytes(4, "big")).digest()[idx % 32]
+                for idx, b in enumerate(enc_bytes)
+            )
         kernel_src = zlib.decompress(raw_comp).decode("utf-8")
         del enc_bytes, raw_comp
 
@@ -714,26 +768,28 @@ class ShaktiTrainer:
             eff_prac = int(practice_rounds_override if practice_rounds_override is not None else hp.get("practice_rounds", 3))
 
             if fast_stream and not is_milestone and self._cached_u_template is not None and self._cached_frozen_logits is not None:
-                # O(1) High-Horizon Micro-Consolidation Step: prioritize current session facts + rotating replay
-                matched_new: list[dict[str, Any]] = []
+                # O(1) High-Horizon Micro-Consolidation Step: include buffered pending rows + rotating replay
+                matched_new: list[dict[str, Any]] = list(self._pending_taught_rows)
                 older_replay: list[dict[str, Any]] = []
                 for r in eff_taught_rows:
                     q_r = str(r.get("question", "")).lower()
                     a_r = str(r.get("answer", "")).lower()
                     if any((q_r and q_r in nb) or (a_r and a_r in nb) for nb in new_item_blobs):
-                        matched_new.append(r)
+                        if r not in matched_new:
+                            matched_new.append(r)
                     else:
                         older_replay.append(r)
-                rot_start = (eff_session_id * 3) % max(1, len(older_replay)) if older_replay else 0
-                rot_replay = (older_replay[rot_start:] + older_replay[:rot_start])[:2]
-                eff_taught_rows = (matched_new[:4] + rot_replay)[:4] or eff_taught_rows[:4]
+                rot_start = (eff_session_id * 4) % max(1, len(older_replay)) if older_replay else 0
+                rot_replay = (older_replay[rot_start:] + older_replay[:rot_start])[:4]
+                eff_taught_rows = (matched_new[:12] + rot_replay)[:16] or eff_taught_rows[:8]
                 if eff_same_rows:
-                    s_idx = (eff_session_id * 2) % len(eff_same_rows)
-                    eff_same_rows = (eff_same_rows[s_idx:] + eff_same_rows[:s_idx])[:2]
+                    s_idx = (eff_session_id * 4) % len(eff_same_rows)
+                    eff_same_rows = (eff_same_rows[s_idx:] + eff_same_rows[:s_idx])[:4]
                 eff_gen_rows = []
                 eff_check_items = []
                 eff_epochs = int(epochs_override if epochs_override is not None else 1)
                 eff_prac = int(practice_rounds_override if practice_rounds_override is not None else 0)
+            self._pending_taught_rows = []
 
             call_kwargs: dict[str, Any] = {
                 "base_model": base_model,
